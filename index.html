@@ -4580,7 +4580,8 @@ function saveBiz(){
   BIZ.email=document.getElementById('cfg-biz-email').value.trim();
   BIZ.tel=document.getElementById('cfg-biz-tel').value.trim();
   BIZ.dir=document.getElementById('cfg-biz-dir').value.trim();
-  Object.entries(BIZ).forEach(([k,v])=>lss('biz_'+k,v));
+  Object.entries(BIZ).forEach(([k,v])=>{ if(k==='actividades')return; lss('biz_'+k,v); });
+  saveActividades();
   toast('Datos del negocio guardados','s');
 }
   function cfgRenderActividades(){
