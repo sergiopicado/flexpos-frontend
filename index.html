@@ -2859,83 +2859,82 @@ function dlXML(d){
   const a=document.createElement('a');a.href=URL.createObjectURL(b);
   a.download=`${doc.numero}_v44.xml`;a.click();toast('XML descargado','s');
 }
-function dlPDF(d){
-  const doc=d||window._currDoc;if(!doc)return;
+function buildPDF(doc){
   // jsPDF Helvetica no soporta ₡ (U+20A1) — usar prefijo ASCII
   const cur=n=>'CRC '+fmt(n);
+  const{jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'mm',format:'a4'});
+  const W=pdf.internal.pageSize.getWidth();let y=18;
+  pdf.setFillColor(0,229,176);pdf.rect(0,0,W,16,'F');
+  pdf.setTextColor(255,255,255);pdf.setFont('helvetica','bold');pdf.setFontSize(12);
+  const tn={FE:'FACTURA ELECTRÓNICA',TE:'TIQUETE ELECTRÓNICO',NC:'NOTA DE CRÉDITO'};
+  pdf.text(tn[doc.tipo]||doc.tipo,18,11);
+  pdf.setFontSize(7);pdf.text('Hacienda CR · v4.4',W-18,11,{align:'right'});
+  y=22;
+  const logoData=ls('biz_logo');
+  if(logoData){try{pdf.addImage(logoData,'PNG',W-52,y,34,12);}catch(e){}}
+  pdf.setTextColor(30,35,55);pdf.setFont('helvetica','bold');pdf.setFontSize(11);
+  pdf.text(doc.bizSnap.nombre,18,y);y+=5;
+  pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor(80,90,120);
+  pdf.text(`Cédula: ${doc.bizSnap.cedula}  ·  Tel: ${doc.bizSnap.tel}`,18,y);y+=4;
+  pdf.text(doc.bizSnap.dir,18,y);y+=8;
+  pdf.setFillColor(240,245,255);pdf.roundedRect(18,y,W-36,18,2,2,'F');
+  pdf.setTextColor(30,35,55);pdf.setFont('helvetica','bold');pdf.setFontSize(8);
+  pdf.text('N° Consecutivo:',21,y+5);pdf.setFont('helvetica','normal');pdf.text(doc.numero,55,y+5);
+  pdf.setFont('helvetica','bold');pdf.text('Clave:',21,y+11);pdf.setFont('helvetica','normal');pdf.setFontSize(6.5);pdf.text(doc.clave,35,y+11);
+  pdf.setFont('helvetica','bold');pdf.setFontSize(8);pdf.text('Fecha:',W/2+2,y+5);pdf.setFont('helvetica','normal');pdf.text(doc.fechaStr,W/2+16,y+5);
+  pdf.setFont('helvetica','bold');pdf.text('Pago:',W/2+2,y+11);pdf.setFont('helvetica','normal');pdf.text(doc.payMethod.toUpperCase(),W/2+14,y+11);
+  y+=24;
+  if(doc.tipo!=='TE'&&doc.cliente?.tipoId!=='final'){
+    pdf.setFont('helvetica','bold');pdf.setFontSize(8);pdf.setTextColor(30,35,55);
+    pdf.text('RECEPTOR',18,y);y+=4;
+    pdf.setFont('helvetica','normal');pdf.setTextColor(70,80,100);
+    pdf.text(`${doc.cliente.nombre}  ·  ${doc.cliente.cedula||''}`,18,y);y+=4;
+    if(doc.cliente.email)pdf.text(doc.cliente.email,18,y);y+=7;
+  }
+  if(doc.ncRef){pdf.setTextColor(255,128,64);pdf.setFontSize(8);pdf.text(`Referencia NC: ${doc.ncRef}`,18,y);y+=6;pdf.setTextColor(30,35,55);}
+  pdf.setFillColor(17,20,34);pdf.rect(18,y,W-36,6,'F');
+  pdf.setTextColor(255,255,255);pdf.setFont('helvetica','bold');pdf.setFontSize(7.5);
+  pdf.text('#',20,y+4.2);pdf.text('Descripción',27,y+4.2);pdf.text('Cant',W-80,y+4.2);pdf.text('P.Unit',W-68,y+4.2);pdf.text('Desc%',W-52,y+4.2);pdf.text('Total',W-20,y+4.2,{align:'right'});
+  y+=9;
+  doc.items.forEach((item,i)=>{
+    const b=item.precio*item.qty;const d=Math.round(b*item.discPct/100);const n=b-d;
+    if(i%2===0){pdf.setFillColor(245,248,255);pdf.rect(18,y-3,W-36,6.5,'F');}
+    pdf.setTextColor(30,35,55);pdf.setFont('helvetica','normal');pdf.setFontSize(7.5);
+    pdf.text(String(i+1),20,y+2);
+    pdf.text((item.nombre||'').slice(0,35),27,y+2);
+    pdf.text(String(item.qty),W-80,y+2);
+    pdf.text(cur(item.precio),W-72,y+2);
+    pdf.text(item.discPct>0?item.discPct+'%':'—',W-52,y+2);
+    pdf.setFont('helvetica','bold');pdf.text(cur(n),W-18,y+2,{align:'right'});
+    y+=6.5;if(y>270){pdf.addPage();y=20;}
+  });
+  y+=4;
+  const addRow=(lbl,val,bold,col)=>{
+    if(bold)pdf.setFont('helvetica','bold');else pdf.setFont('helvetica','normal');
+    pdf.setFontSize(col?9.5:8);
+    if(col)pdf.setTextColor(...col);else pdf.setTextColor(70,80,100);
+    pdf.text(lbl,W-70,y);pdf.text(val,W-18,y,{align:'right'});y+=5;
+  };
+  addRow('Subtotal:',cur(doc.sub));
+  if(doc.disc>0)addRow('Descuentos:','-'+cur(doc.disc),false,[255,128,64]);
+  addRow('IVA 13%:',cur(doc.iva),false,[90,160,255]);
+  pdf.setDrawColor(200,205,220);pdf.line(W-70,y,W-18,y);y+=3;
+  addRow('TOTAL:',cur(doc.total),true,[0,200,150]);
+  pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.setTextColor(150,160,180);
+  pdf.text('$'+(doc.total/doc.tc).toFixed(2)+' USD',W-18,y,{align:'right'});y+=10;
+  const fy=Math.max(y,268);
+  pdf.setFillColor(240,245,255);pdf.rect(0,fy,W,28,'F');
+  pdf.setTextColor(100,115,140);pdf.setFontSize(7);pdf.setFont('helvetica','normal');
+  pdf.text('Documento tributario electrónico · Hacienda CR v4.4 · Para consultas: www.hacienda.go.cr',W/2,fy+8,{align:'center'});
+  pdf.setTextColor(0,200,140);pdf.setFont('helvetica','bold');pdf.setFontSize(8);
+  pdf.text('FlexPOS · Sistema de Facturación Electrónica · Costa Rica',W/2,fy+14,{align:'center'});
+  return pdf;
+}
+function dlPDF(d){
+  const doc=d||window._currDoc;if(!doc)return;
   try{
-    const{jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'mm',format:'a4'});
-    const W=pdf.internal.pageSize.getWidth();let y=18;
-    pdf.setFillColor(0,229,176);pdf.rect(0,0,W,16,'F');
-    pdf.setTextColor(255,255,255);pdf.setFont('helvetica','bold');pdf.setFontSize(12);
-    const tn={FE:'FACTURA ELECTRÓNICA',TE:'TIQUETE ELECTRÓNICO',NC:'NOTA DE CRÉDITO'};
-    pdf.text(tn[doc.tipo]||doc.tipo,18,11);
-    pdf.setFontSize(7);pdf.text('Hacienda CR · v4.4',W-18,11,{align:'right'});
-    y=22;
-    // Logo del negocio (si está configurado)
-    const logoData=ls('biz_logo');
-    if(logoData){
-      try{
-        pdf.addImage(logoData,'PNG',W-52,y,34,12);
-      }catch(e){/* logo inválido, ignorar */}
-    }
-    pdf.setTextColor(30,35,55);pdf.setFont('helvetica','bold');pdf.setFontSize(11);
-    pdf.text(doc.bizSnap.nombre,18,y);y+=5;
-    pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor(80,90,120);
-    pdf.text(`Cédula: ${doc.bizSnap.cedula}  ·  Tel: ${doc.bizSnap.tel}`,18,y);y+=4;
-    pdf.text(doc.bizSnap.dir,18,y);y+=8;
-    pdf.setFillColor(240,245,255);pdf.roundedRect(18,y,W-36,18,2,2,'F');
-    pdf.setTextColor(30,35,55);pdf.setFont('helvetica','bold');pdf.setFontSize(8);
-    pdf.text('N° Consecutivo:',21,y+5);pdf.setFont('helvetica','normal');pdf.text(doc.numero,55,y+5);
-    pdf.setFont('helvetica','bold');pdf.text('Clave:',21,y+11);pdf.setFont('helvetica','normal');pdf.setFontSize(6.5);pdf.text(doc.clave,35,y+11);
-    pdf.setFont('helvetica','bold');pdf.setFontSize(8);pdf.text('Fecha:',W/2+2,y+5);pdf.setFont('helvetica','normal');pdf.text(doc.fechaStr,W/2+16,y+5);
-    pdf.setFont('helvetica','bold');pdf.text('Pago:',W/2+2,y+11);pdf.setFont('helvetica','normal');pdf.text(doc.payMethod.toUpperCase(),W/2+14,y+11);
-    y+=24;
-    if(doc.tipo!=='TE'&&doc.cliente?.tipoId!=='final'){
-      pdf.setFont('helvetica','bold');pdf.setFontSize(8);pdf.setTextColor(30,35,55);
-      pdf.text('RECEPTOR',18,y);y+=4;
-      pdf.setFont('helvetica','normal');pdf.setTextColor(70,80,100);
-      pdf.text(`${doc.cliente.nombre}  ·  ${doc.cliente.cedula||''}`,18,y);y+=4;
-      if(doc.cliente.email)pdf.text(doc.cliente.email,18,y);y+=7;
-    }
-    if(doc.ncRef){pdf.setTextColor(255,128,64);pdf.setFontSize(8);pdf.text(`Referencia NC: ${doc.ncRef}`,18,y);y+=6;pdf.setTextColor(30,35,55);}
-    pdf.setFillColor(17,20,34);pdf.rect(18,y,W-36,6,'F');
-    pdf.setTextColor(255,255,255);pdf.setFont('helvetica','bold');pdf.setFontSize(7.5);
-    pdf.text('#',20,y+4.2);pdf.text('Descripción',27,y+4.2);pdf.text('Cant',W-80,y+4.2);pdf.text('P.Unit',W-68,y+4.2);pdf.text('Desc%',W-52,y+4.2);pdf.text('Total',W-20,y+4.2,{align:'right'});
-    y+=9;
-    doc.items.forEach((item,i)=>{
-      const b=item.precio*item.qty;const d=Math.round(b*item.discPct/100);const n=b-d;
-      if(i%2===0){pdf.setFillColor(245,248,255);pdf.rect(18,y-3,W-36,6.5,'F');}
-      pdf.setTextColor(30,35,55);pdf.setFont('helvetica','normal');pdf.setFontSize(7.5);
-      pdf.text(String(i+1),20,y+2);
-      pdf.text((item.nombre||'').slice(0,35),27,y+2);
-      pdf.text(String(item.qty),W-80,y+2);
-      pdf.text(cur(item.precio),W-72,y+2);
-      pdf.text(item.discPct>0?item.discPct+'%':'—',W-52,y+2);
-      pdf.setFont('helvetica','bold');pdf.text(cur(n),W-18,y+2,{align:'right'});
-      y+=6.5;if(y>270){pdf.addPage();y=20;}
-    });
-    y+=4;
-    const addRow=(lbl,val,bold,col)=>{
-      if(bold)pdf.setFont('helvetica','bold');else pdf.setFont('helvetica','normal');
-      pdf.setFontSize(col?9.5:8);
-      if(col)pdf.setTextColor(...col);else pdf.setTextColor(70,80,100);
-      pdf.text(lbl,W-70,y);pdf.text(val,W-18,y,{align:'right'});y+=5;
-    };
-    addRow('Subtotal:',cur(doc.sub));
-    if(doc.disc>0)addRow('Descuentos:','-'+cur(doc.disc),false,[255,128,64]);
-    addRow('IVA 13%:',cur(doc.iva),false,[90,160,255]);
-    pdf.setDrawColor(200,205,220);pdf.line(W-70,y,W-18,y);y+=3;
-    addRow('TOTAL:',cur(doc.total),true,[0,200,150]);
-    pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.setTextColor(150,160,180);
-    pdf.text('$'+(doc.total/doc.tc).toFixed(2)+' USD',W-18,y,{align:'right'});y+=10;
-    const fy=Math.max(y,268);
-    pdf.setFillColor(240,245,255);pdf.rect(0,fy,W,28,'F');
-    pdf.setTextColor(100,115,140);pdf.setFontSize(7);pdf.setFont('helvetica','normal');
-    pdf.text('Documento tributario electrónico · Hacienda CR v4.4 · Para consultas: www.hacienda.go.cr',W/2,fy+8,{align:'center'});
-    pdf.setTextColor(0,200,140);pdf.setFont('helvetica','bold');pdf.setFontSize(8);
-    pdf.text('FlexPOS · Sistema de Facturación Electrónica · Costa Rica',W/2,fy+14,{align:'center'});
-    pdf.save(`${doc.numero}_${doc.tipo}.pdf`);toast('PDF descargado','s');
+    buildPDF(doc).save(`${doc.numero}_${doc.tipo}.pdf`);
+    toast('PDF descargado','s');
   }catch(e){toast('Error PDF: '+e.message,'e');}
 }
 function printTicket(){
@@ -4245,6 +4244,9 @@ async function consultarHacienda(docId, opts = {}) {
       allHistory[idx].haciendaDetalle = msg
         ? `[${msg.codigo}] ${msg.estado} — ${msg.detalle}`
         : (data.respuesta_xml_decodificada || 'Respuesta procesada');
+      if (data.respuesta_xml_decodificada) {
+        allHistory[idx].xmlRespuesta = data.respuesta_xml_decodificada;
+      }
       lss('pos_history', JSON.stringify(allHistory));
       renderHist();
       if (!silent) toast('Estado actualizado', 's');
@@ -4252,9 +4254,10 @@ async function consultarHacienda(docId, opts = {}) {
       if ((data.ind_estado || '').toLowerCase() === 'aceptado') {
         sendConfirmationEmail(allHistory[idx]);
       }
-      // Bloque 4 — sync estado a Supabase
+      // Bloque 4 — sync estado a Supabase (incluye xmlRespuesta en doc_json)
       updateDocInSupabase(docId, {
         hacienda_estado: data.ind_estado || 'recibido',
+        doc_json: allHistory[idx],
       });
     }
   } catch (e) {
@@ -4281,13 +4284,34 @@ async function sendConfirmationEmail(doc) {
     return;
   }
 
+  // Codificar string XML a base64 respetando UTF-8
+  const toB64 = str => btoa(unescape(encodeURIComponent(str)));
+
+  // Adjunto 1: XML de la factura (firmado si existe, generado si no)
+  const xmlFactura = doc.xml || buildXML(doc);
+  const attachments = [
+    { filename: `${doc.numero}.xml`, content: toB64(xmlFactura) },
+  ];
+
+  // Adjunto 2: XML de respuesta de Hacienda (si ya fue consultado)
+  if (doc.xmlRespuesta) {
+    attachments.push({ filename: `${doc.numero}_respuesta_hacienda.xml`, content: toB64(doc.xmlRespuesta) });
+  }
+
+  // Adjunto 3: PDF
+  try {
+    const pdfB64 = buildPDF(doc).output('datauristring').split(',')[1];
+    attachments.push({ filename: `${doc.numero}.pdf`, content: pdfB64 });
+  } catch(e) { /* si falla el PDF no bloqueamos el envío */ }
+
   const payload = {
-    to:      email,
-    numero:  doc.numero,
-    clave:   doc.clave,
-    total:   doc.total,
-    emisor:  doc.bizSnap?.nombre || '',
-    fecha:   doc.fechaStr || '',
+    to:          email,
+    numero:      doc.numero,
+    clave:       doc.clave,
+    total:       doc.total,
+    emisor:      doc.bizSnap?.nombre || '',
+    fecha:       doc.fechaStr || '',
+    attachments,
   };
 
   const tryOnce = () =>
