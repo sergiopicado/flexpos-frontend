@@ -2773,9 +2773,89 @@ function showTicket(doc){
 /* ═══════════════════════════════════════════════════
    DOWNLOADS
 ═══════════════════════════════════════════════════ */
+function buildXML(doc){
+  const x=s=>(String(s||'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const n2=v=>Number(v||0).toFixed(2);
+  const tipoNs={
+    FE:['FacturaElectronica',     'https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/facturaElectronica'],
+    TE:['TiqueteElectronico',     'https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/tiqueteElectronico'],
+    NC:['NotaCreditoElectronica', 'https://cdn.comprobanteselectronicos.go.cr/xml-schemas/v4.4/notaCreditoElectronica'],
+  };
+  const [root,ns]=tipoNs[doc.tipo]||tipoNs.FE;
+  const medPago={efectivo:'01',tarjeta:'02',sinpe:'06',transferencia:'04',cheque:'03'}[doc.payMethod]||'01';
+  let fechaISO;
+  try{const d=new Date(doc.fecha);fechaISO=d.toISOString().slice(0,19)+'-06:00';}
+  catch(e){fechaISO=new Date().toISOString().slice(0,19)+'-06:00';}
+  const tarifaCod={'13':'08','4':'02','2':'01','1':'07','0':'07'};
+  let totGrav=0,totExen=0,totDesc=0,totIVA=0;
+  const lineas=doc.items.map((item,i)=>{
+    const esKg=item.unidad_medida==='kg';
+    const qty=esKg?Number(item.qty)/1000:Number(item.qty)||1;
+    const tarifa=parseFloat(item.tarifa_iva||'13')||0;
+    // precios llevan IVA incluido — extraer base
+    const precioConIva=Number(item.precio)||0;
+    const precioBase=tarifa>0?precioConIva/(1+tarifa/100):precioConIva;
+    const montoTotal=precioBase*qty;
+    const descMonto=Math.round(montoTotal*(item.discPct||0)/100*100)/100;
+    const subTotal=montoTotal-descMonto;
+    const ivaMonto=tarifa>0?Math.round(subTotal*tarifa/100*100)/100:0;
+    if(tarifa>0)totGrav+=subTotal;else totExen+=subTotal;
+    totDesc+=descMonto;totIVA+=ivaMonto;
+    const descBlk=descMonto>0?`\n      <Descuento><MontoDescuento>${n2(descMonto)}</MontoDescuento><NaturalezaDescuento>Descuento comercial</NaturalezaDescuento></Descuento>`:'';
+    const ivaBlk=tarifa>0?`\n      <BaseImponible>${n2(subTotal)}</BaseImponible>\n      <Impuesto><Codigo>01</Codigo><CodigoTarifa>${tarifaCod[String(tarifa)]||'08'}</CodigoTarifa><Tarifa>${n2(tarifa)}</Tarifa><Monto>${n2(ivaMonto)}</Monto></Impuesto>\n      <ImpuestoNeto>${n2(ivaMonto)}</ImpuestoNeto>`:'';
+    return `\n    <LineaDetalle>\n      <NumeroLinea>${i+1}</NumeroLinea>\n      <CodigoCabys>${x(item.cabys||'0')}</CodigoCabys>\n      <Cantidad>${esKg?qty.toFixed(3):n2(qty)}</Cantidad>\n      <UnidadMedida>${esKg?'Kg':'Unid'}</UnidadMedida>\n      <Detalle>${x(item.nombre||'')}</Detalle>\n      <PrecioUnitario>${n2(precioBase)}</PrecioUnitario>\n      <MontoTotal>${n2(montoTotal)}</MontoTotal>${descBlk}\n      <SubTotal>${n2(subTotal)}</SubTotal>${ivaBlk}\n      <MontoTotalLinea>${n2(subTotal+ivaMonto)}</MontoTotalLinea>\n    </LineaDetalle>`;
+  });
+  let recep='';
+  if(doc.tipo!=='TE'&&doc.cliente?.tipoId!=='final'&&doc.cliente?.cedula){
+    recep=`\n  <Receptor>\n    <Nombre>${x(doc.cliente.nombre)}</Nombre>\n    <Identificacion><Tipo>${x(doc.cliente.tipoId||'01')}</Tipo><Numero>${x(doc.cliente.cedula)}</Numero></Identificacion>${doc.cliente.email?`\n    <CorreoElectronico>${x(doc.cliente.email)}</CorreoElectronico>`:''}\n  </Receptor>`;
+  }
+  let infoRef='';
+  if(doc.tipo==='NC'&&doc.ncRef){
+    const tipoDocRef={'01':'01','04':'04'}[doc.ncRef.substring(8,10)]||'01';
+    infoRef=`\n  <InformacionReferencia>\n    <TipoDoc>${tipoDocRef}</TipoDoc>\n    <Numero>${x(doc.ncRef)}</Numero>\n    <FechaEmisionRef>${fechaISO}</FechaEmisionRef>\n    <Codigo>01</Codigo>\n    <Razon>Anulación de documento</Razon>\n  </InformacionReferencia>`;
+  }
+  const totVenta=totGrav+totExen+totDesc;
+  const totVentaNeta=totGrav+totExen;
+  const totComp=totVentaNeta+totIVA;
+  const codAct=x(doc.bizSnap?.codigoActividad||doc.bizSnap?.ciiu||'4711');
+  const tel=(doc.bizSnap?.tel||'22001234').replace(/\D/g,'').slice(-8);
+  return `<?xml version="1.0" encoding="UTF-8"?><${root} xmlns="${ns}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <Clave>${x(doc.clave)}</Clave>
+  <CodigoActividad>${codAct}</CodigoActividad>
+  <NumeroConsecutivo>${x(doc.numero)}</NumeroConsecutivo>
+  <FechaEmision>${fechaISO}</FechaEmision>
+  <Emisor>
+    <Nombre>${x(doc.bizSnap?.nombre)}</Nombre>
+    <Identificacion><Tipo>${x(doc.bizSnap?.tipoId||'01')}</Tipo><Numero>${x(doc.bizSnap?.cedula)}</Numero></Identificacion>
+    <NombreComercial>${x(doc.bizSnap?.nombre)}</NombreComercial>
+    <Ubicacion><Provincia>1</Provincia><Canton>01</Canton><Distrito>01</Distrito><Barrio>01</Barrio><OtrasSenas>${x(doc.bizSnap?.dir||'')}</OtrasSenas></Ubicacion>
+    <Telefono><CodigoPais>506</CodigoPais><NumTelefono>${x(tel)}</NumTelefono></Telefono>
+    <CorreoElectronico>${x(doc.bizSnap?.email||'')}</CorreoElectronico>
+  </Emisor>${recep}
+  <CondicionVenta>01</CondicionVenta>
+  <MedioPago>${medPago}</MedioPago>
+  <DetalleServicio>${lineas.join('')}
+  </DetalleServicio>
+  <ResumenFactura>
+    <CodigoTipoMoneda><CodigoMoneda>${x(doc.moneda||'CRC')}</CodigoMoneda><TipoCambio>${Number(doc.tc||1).toFixed(5)}</TipoCambio></CodigoTipoMoneda>
+    <TotalServGravados>${n2(totGrav)}</TotalServGravados>
+    <TotalServExentos>${n2(totExen)}</TotalServExentos>
+    <TotalMercanciasGravadas>0.00</TotalMercanciasGravadas>
+    <TotalMercanciasExentas>0.00</TotalMercanciasExentas>
+    <TotalGravado>${n2(totGrav)}</TotalGravado>
+    <TotalExento>${n2(totExen)}</TotalExento>
+    <TotalVenta>${n2(totVenta)}</TotalVenta>
+    <TotalDescuentos>${n2(totDesc)}</TotalDescuentos>
+    <TotalVentaNeta>${n2(totVentaNeta)}</TotalVentaNeta>
+    <TotalImpuesto>${n2(totIVA)}</TotalImpuesto>
+    <TotalComprobante>${n2(totComp)}</TotalComprobante>
+  </ResumenFactura>${infoRef}
+</${root}>`;
+}
 function dlXML(d){
   const doc=d||window._currDoc;if(!doc)return;
-  const b=new Blob([doc.xml],{type:'application/xml'});
+  const xml=doc.xml||buildXML(doc);
+  const b=new Blob([xml],{type:'application/xml'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);
   a.download=`${doc.numero}_v44.xml`;a.click();toast('XML descargado','s');
 }
