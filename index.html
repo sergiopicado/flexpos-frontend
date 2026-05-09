@@ -4016,6 +4016,7 @@ async function enviarAHacienda(doc){
       const err=await resp.json().catch(()=>({}));
       allHistory[idx].haciendaEstado='rechazado';
       allHistory[idx].haciendaDetalle=`Error backend: ${err.error||resp.status}${err.detalles?'\n'+err.detalles.join('\n'):''}`;
+      lss('pos_history',JSON.stringify(allHistory));
       toast('Error al enviar: '+(err.error||resp.status),'e');
       if(err.detalles?.length){
         setTimeout(()=>toast('XML: '+err.detalles[0],'e'),400);
@@ -4037,6 +4038,8 @@ async function enviarAHacienda(doc){
       : data.mensajeHacienda
         ? `${data.mensajeHacienda.codigo}: ${data.mensajeHacienda.detalle}`
         : '';
+
+    lss('pos_history',JSON.stringify(allHistory));
 
     if(allHistory[idx].haciendaEstado==='aceptado'){
       toast('✓ Documento aceptado por Hacienda','s');
