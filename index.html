@@ -4025,10 +4025,12 @@ async function enviarAHacienda(doc){
     }
 
     const data=await resp.json();
+    console.log('[Hacienda firmar-y-enviar response]', JSON.stringify(data));
 
     // Guardar el XML firmado para que dlXML pueda descargarlo
-    if(data.xmlFirmado){
-      allHistory[idx].xml=data.xmlFirmado;
+    const xmlRecibido=data.xmlFirmado||data.xml||data.xmlString||data.signed_xml||data.xmlDocument||null;
+    if(xmlRecibido){
+      allHistory[idx].xml=xmlRecibido;
     }
 
     const estado=data.ind_estado||data.estado||'recibido';
